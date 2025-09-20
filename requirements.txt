@@ -1,0 +1,15 @@
+dotenv
+langchain_ollama
+langchain_community
+langchain_nomic
+tiktoken
+langchainhub
+chromadb
+langchain
+langgraph
+tavily-python
+bs4
+scikit-learn
+nomic[local]
+crawl4ai
+requests
