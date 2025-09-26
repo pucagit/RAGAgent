@@ -65,7 +65,7 @@ app = workflow.compile()
 # Example usage
 if __name__ == "__main__":
     print = pprint.pp
-    inputs: GraphState = {"question": "How do I run page crawling in parallel using Crawl4AI?",
+    inputs: GraphState = {"question": "How do I crawl multiple URLs using Crawl4AI, give me the specific code example.",
                           "generation": "",
                           "documents": []}
     # Run the workflow and get the final state

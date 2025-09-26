@@ -56,8 +56,12 @@ def retrieve(state):
 
     # load the vectorstore
     vectorstore = Chroma(
-        collection_name="crawl4ai-docs", persist_directory="./chroma_store", embedding_function=OllamaEmbeddings(model="nomic-embed-text")
+        collection_name="crawl4ai-docs", persist_directory="./crawl4ai_store", embedding_function=OllamaEmbeddings(model="nomic-embed-text")
     )
+
+    # vectorstore = Chroma(
+    #     collection_name="crawl4ai-docs", persist_directory="./webbaseloader_store", embedding_function=OllamaEmbeddings(model="nomic-embed-text")
+    # )
 
     retriever = vectorstore.as_retriever(k=3)
 
@@ -221,10 +225,10 @@ def grade_generation_v_documents_and_question(state):
             return "useful"
         else:
             print("---DECISION: GENERATION DOES NOT ADDRESS QUESTION---")
-            return "not useful"
+            return "not_useful"
     else:
         print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
-        return "not supported"
+        return "not_useful"
 
 # Question rewriter
 def transform_query(state):

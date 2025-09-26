@@ -1,57 +1,41 @@
-import asyncio
-import requests 
-from xml.etree import ElementTree
+import asyncio, argparse
+from sitemap_parser import get_urls_from_sitemap
 from typing import List, Tuple
 from langchain.schema import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_ollama import OllamaEmbeddings
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode # type: ignore
+from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
 async def crawl_parallel(urls: List[str]) -> List[Tuple[str, str]]:
     """
     Returns a list of (url, markdown_text) tuples.
     """
     crawl_result: List[Tuple[str, str]] = []
-    run_conf = CrawlerRunConfig(cache_mode=CacheMode.BYPASS).clone(stream=False)
+
+    md_generator = DefaultMarkdownGenerator(
+        options={"ignore_links": True, "escape_html": False, "body_width": 80}
+    )
+
+    run_conf = CrawlerRunConfig(
+        markdown_generator=md_generator, 
+        cache_mode=CacheMode.BYPASS, 
+        excluded_tags = ["a"]
+    ).clone(stream=False)
 
     async with AsyncWebCrawler() as crawler:
         results = await crawler.arun_many(urls, config=run_conf)
-        for res in results:
+        for res in results: # type: ignore
             if res.success:
                 md = res.markdown.raw_markdown or ""
                 print(f"[OK] {res.url}, length: {len(md)}")
+                # print(md)
                 crawl_result.append((res.url, md))
             else:
                 print(f"[ERROR] {res.url} => {res.error_message}")
 
     return crawl_result
-
-def get_crawl4ai_docs_urls() -> List[str]:
-    """
-    Fetches all URLs from the Crawl4AI documentation.
-    Uses the sitemap (https://docs.crawl4ai.com/sitemap.xml) to get these URLs.
-
-    Returns:
-        List[str]: List of URLs
-    """
-    sitemap_url = "https://docs.crawl4ai.com/sitemap.xml"
-    try:
-        response = requests.get(sitemap_url)
-        response.raise_for_status()
-        
-        # Parse the XML
-        root = ElementTree.fromstring(response.content)
-        
-        # Extract all URLs from the sitemap
-        # The namespace is usually defined in the root element
-        namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
-        urls: List[str] = [t for loc in root.findall('.//ns:loc', namespace) if (t := loc.text) is not None]
-        
-        return urls
-    except Exception as e:
-        print(f"Error fetching sitemap: {e}")
-        return []        
 
 async def build_chunks_from_crawl(
     urls: List[str],
@@ -83,14 +67,25 @@ async def build_chunks_from_crawl(
     return doc_splits
 
 async def main():
-    urls = get_crawl4ai_docs_urls()
+    parser = argparse.ArgumentParser(description="Crawl URLs from a sitemap and store in Chroma DB.")
+    parser.add_argument("sitemap_url", help="URL of the sitemap or sitemap index")
+    parser.add_argument("-p", "--pattern", default="", help="Regex pattern to filter URLs")
+    parser.add_argument("--max_depth", type=int, default=3, help="Max recursion depth for sitemap indexes")
+    parser.add_argument("--timeout", type=int, default=10, help="HTTP request timeout in seconds")
+
+    args = parser.parse_args()
+    urls = get_urls_from_sitemap(args.sitemap_url, args.pattern, args.max_depth, args.timeout)
+    # for url in urls:
+    #     print(url)
+    print(f"Found {len(urls)} URLs from sitemap")
+    await crawl_parallel(urls)
     if urls:
         print(f"Found {len(urls)} URLs to crawl")
         doc_splits = await build_chunks_from_crawl(urls)
         Chroma.from_documents(
             documents=doc_splits, 
             collection_name="crawl4ai-docs", 
-            persist_directory="./chroma_store", 
+            persist_directory="./crawl4ai_store", 
             embedding=OllamaEmbeddings(model="nomic-embed-text")
         )
     else:
