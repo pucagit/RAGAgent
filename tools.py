@@ -8,7 +8,7 @@ from langchain.schema import Document
 from langchain_community.tools.tavily_search import TavilySearchResults
 
 # LLM
-llm = ChatOllama(model="llama3.1:8b-instruct-q4_0", temperature=0)
+llm = ChatOllama(model="llama3.1:8b-instruct-q4_0", temperature=0.2, num_ctx=8192)
 
 # Router
 def route_question(state):
@@ -24,7 +24,7 @@ def route_question(state):
     print("---ROUTE QUESTION---")
     prompt = PromptTemplate(
         template="""You are an expert at routing a user question to a vectorstore or web search. \n
-        Use the vectorstore for questions on Crawl4AI the Open-Source LLM-Friendly Web Crawler & Scraper. \n
+        Use the vectorstore for questions on HackTheBox challenges. \n
         You do not need to be stringent with the keywords in the question related to these topics. \n
         Otherwise, use web-search. Give a binary choice 'web_search' or 'vectorstore' based on the question. \n
         Return a JSON with a single key 'datasource' and no premable or explanation. \n
@@ -52,21 +52,29 @@ def retrieve(state):
     Returns:
         state (dict): New key added to state, documents, that contains retrieved documents
     """
-    print("---RETRIEVE---")
+    print("---GUESS CHALLENGE NAME FROM QUESTION---")
+    question = state["question"]
+    prompt = PromptTemplate(
+        template="""You are an expert at extracting the HackTheBox challenge name from a user question. \n
+        The challenge name is typically in the format 'htb-challenge-name'. \n
+        If the question does not reference a HackTheBox challenge, return 'unknown'. \n
+        Here is the user question: {question} \n
+        Return ONLY the challenge name with NO preamble or explanation.""",
+        input_variables=["question"],
+    )
+    challenge_name_extractor = prompt | llm | StrOutputParser()
+    challenge_name = challenge_name_extractor.invoke({"question": question}).lower().strip()
+    print(f"---CHALLENGE NAME: {challenge_name}---")
 
+    print("---RETRIEVE---")
     # load the vectorstore
     vectorstore = Chroma(
-        collection_name="crawl4ai-docs", persist_directory="./crawl4ai_store", embedding_function=OllamaEmbeddings(model="nomic-embed-text")
+        collection_name="htb_2025", persist_directory="D:/AI-LLM/Agents/RAGAgent/crawl4ai_store", embedding_function=OllamaEmbeddings(model="nomic-embed-text")
     )
 
-    # vectorstore = Chroma(
-    #     collection_name="crawl4ai-docs", persist_directory="./webbaseloader_store", embedding_function=OllamaEmbeddings(model="nomic-embed-text")
-    # )
-
-    retriever = vectorstore.as_retriever(k=3)
-
-    question = state["question"]
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 8, "filter": {"challenge_name": challenge_name}})
     documents = retriever.invoke(question)
+
     return {"documents": documents, "question": question}
 
 def generate(state):
@@ -81,7 +89,16 @@ def generate(state):
     """
     print("---GENERATE---")
 
-    prompt = hub.pull("rlm/rag-prompt")
+    prompt = PromptTemplate(
+        template="""You are an assistant for question-answering tasks.\n
+        Use the following pieces of retrieved context to answer the question.\n
+        If you don't know the answer, just say that you don't know.\n
+        Here is the context: {context}\n
+        Here is the question: {question}\n
+        Provide a conversational answer with a step-by-step guide on how to solve the challenge.
+        """,
+        input_variables=["context", "question"],
+    )
 
     rag_chain = prompt | llm | StrOutputParser()
 
