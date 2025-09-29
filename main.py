@@ -2,7 +2,7 @@ import pprint
 from typing import List
 from typing_extensions import TypedDict
 from langgraph.graph import START, END, StateGraph
-from tools import decide_to_generate, generate, grade_documents, grade_generation_v_documents_and_question, route_question, transform_query, web_search, retrieve
+from tools import decide_to_generate, decide_to_retrieve, generate, grade_documents, grade_generation_v_documents_and_question, route_question, transform_query, web_search, retrieve
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,6 +20,9 @@ class GraphState(TypedDict):
     question: str
     generation: str
     documents: List[str]
+    challenge_name: str
+    retrieve_count: int
+    generate_count: int
 
 workflow = StateGraph(GraphState)
 
@@ -45,11 +48,19 @@ workflow.add_conditional_edges(
     "grade_documents", 
     decide_to_generate,
     {
-        "transform_query": "transform_query",
-        "generate": "generate"
+        "not_relevant": "transform_query",
+        "relevant": "generate"
     }
 )
-workflow.add_edge("transform_query", "retrieve")
+# workflow.add_edge("transform_query", "retrieve")
+workflow.add_conditional_edges(
+    "transform_query", 
+    decide_to_retrieve,
+    {
+        "max_retrieval_exceeded": "web_search",
+        "max_retrieval_not_exceeded": "retrieve"
+    }
+)
 workflow.add_conditional_edges(
     "generate",
     grade_generation_v_documents_and_question,
@@ -65,9 +76,12 @@ app = workflow.compile()
 # Example usage
 if __name__ == "__main__":
     print = pprint.pp
-    inputs: GraphState = {"question": "Give me a full step-by-step of how to solve the Fluffy challenge in HackTheBox.",
+    inputs: GraphState = {"question": "Give me a full step-by-step of how to solve the TwoMillion challenge in HackTheBox.",
+                          "challenge_name": "",
                           "generation": "",
-                          "documents": []}
+                          "documents": [], 
+                          "retrieve_count": 0,
+                          "generate_count": 0}
     # Run the workflow and get the final state
     for output in app.stream(inputs):
         final_state = next(iter(output.values()))

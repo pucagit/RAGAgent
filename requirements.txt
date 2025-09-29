@@ -1,5 +1,7 @@
 dotenv
 langchain_ollama
+langchain_google_genai 
+google-generativeai
 langchain_community
 langchain_nomic
 tiktoken

@@ -1,4 +1,4 @@
-from langchain import hub
+from dotenv import load_dotenv
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain.prompts import PromptTemplate
@@ -6,9 +6,13 @@ from langchain_community.vectorstores import Chroma
 from langchain_ollama.embeddings import OllamaEmbeddings
 from langchain.schema import Document
 from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+load_dotenv()
 
 # LLM
-llm = ChatOllama(model="llama3.1:8b-instruct-q4_0", temperature=0.2, num_ctx=8192)
+ollama_llm = ChatOllama(model="llama3.1:8b-instruct-q4_0", temperature=0.2, num_ctx=8192)
+google_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
 
 # Router
 def route_question(state):
@@ -32,7 +36,7 @@ def route_question(state):
         input_variables=["question"],
     )
 
-    question_router = prompt | llm | JsonOutputParser()
+    question_router = prompt | ollama_llm | JsonOutputParser()
     question = state["question"]
     source = question_router.invoke({"question": question})
     datasource = source["datasource"]
@@ -40,6 +44,26 @@ def route_question(state):
         return "vectorstore"
     elif datasource == "web_search":
         return "web_search"
+
+def decide_to_retrieve(state):
+    """
+    Determines whether to retrieve documents, or use web search instead when the retrieve count exceeds a threshold.
+
+    Args:
+        state (dict): The current graph state
+    Returns:
+        str: Binary decision for next node to call
+    """
+
+    print("---DECIDE TO RETRIEVE OR WEB SEARCH---")
+    retrieve_count = state["retrieve_count"]
+
+    if retrieve_count >= 2:
+        print("---DECISION: RETRIEVE COUNT EXCEEDED, USE WEB SEARCH---")
+        return "max_retrieval_exceeded"
+    else:
+        print("---DECISION: RETRIEVE---")
+        return "max_retrieval_not_exceeded"
 
 # Docs retriever
 def retrieve(state):
@@ -52,21 +76,26 @@ def retrieve(state):
     Returns:
         state (dict): New key added to state, documents, that contains retrieved documents
     """
-    print("---GUESS CHALLENGE NAME FROM QUESTION---")
-    question = state["question"]
-    prompt = PromptTemplate(
-        template="""You are an expert at extracting the HackTheBox challenge name from a user question. \n
-        The challenge name is typically in the format 'htb-challenge-name'. \n
-        If the question does not reference a HackTheBox challenge, return 'unknown'. \n
-        Here is the user question: {question} \n
-        Return ONLY the challenge name with NO preamble or explanation.""",
-        input_variables=["question"],
-    )
-    challenge_name_extractor = prompt | llm | StrOutputParser()
-    challenge_name = challenge_name_extractor.invoke({"question": question}).lower().strip()
-    print(f"---CHALLENGE NAME: {challenge_name}---")
-
     print("---RETRIEVE---")
+    challenge_name = state["challenge_name"]
+    while not challenge_name or not challenge_name.startswith("htb"):
+        print("---GUESS CHALLENGE NAME FROM QUESTION---")
+        prompt = PromptTemplate(
+            template="""You are an expert at extracting the HackTheBox challenge name from a user question. \n
+            The challenge name MUST be in the format 'htb-challengename'. \n
+            If the question does not reference a HackTheBox challenge, return 'unknown'. \n
+            Here is the user question: {question} \n
+            Return ONLY the challenge name with NO preamble or explanation.""",
+            input_variables=["question"],
+        )
+        challenge_name_extractor = prompt | ollama_llm | StrOutputParser()
+        question = state["question"]
+        challenge_name = challenge_name_extractor.invoke({"question": question}).lower().strip()
+        if challenge_name == "unknown":
+            print("---DECISION: CHALLENGE NAME UNKNOWN, USE WEB SEARCH---")
+            return {"documents": None, "question": question, "challenge_name": challenge_name}
+        print(f"---CHALLENGE NAME: {challenge_name}---")
+
     # load the vectorstore
     vectorstore = Chroma(
         collection_name="htb_2025", persist_directory="D:/AI-LLM/Agents/RAGAgent/crawl4ai_store", embedding_function=OllamaEmbeddings(model="nomic-embed-text")
@@ -75,7 +104,7 @@ def retrieve(state):
     retriever = vectorstore.as_retriever(search_kwargs={"k": 8, "filter": {"challenge_name": challenge_name}})
     documents = retriever.invoke(question)
 
-    return {"documents": documents, "question": question}
+    return {"documents": documents, "question": question, "challenge_name": challenge_name, "retrieve_count": state["retrieve_count"] + 1}
 
 def generate(state):
     """
@@ -100,14 +129,14 @@ def generate(state):
         input_variables=["context", "question"],
     )
 
-    rag_chain = prompt | llm | StrOutputParser()
+    rag_chain = prompt | google_llm | StrOutputParser()
 
     question = state["question"]
     documents = state["documents"]
 
     # RAG generation
     generation = rag_chain.invoke({"context": documents, "question": question})
-    return {"documents": documents, "question": question, "generation": generation}
+    return {"documents": documents, "question": question, "generation": generation, "challenge_name": state["challenge_name"], "generate_count": state["generate_count"] + 1}
 
 def grade_documents(state):
     """
@@ -132,10 +161,14 @@ def grade_documents(state):
         input_variables=["question", "document"],
     )
 
-    retrieval_grader = prompt | llm | JsonOutputParser()
+    retrieval_grader = prompt | ollama_llm | JsonOutputParser()
 
     question = state["question"]
     documents = state["documents"]
+
+    if not documents:
+        print("---NO DOCUMENTS RETRIEVED, SKIP GRADE---")
+        return {"documents": None, "question": question}
 
     # Score each doc
     filtered_docs = []
@@ -150,7 +183,7 @@ def grade_documents(state):
         else:
             print("---GRADE: DOCUMENT NOT RELEVANT---")
             continue
-    return {"documents": filtered_docs, "question": question}
+    return {"documents": filtered_docs, "question": question, "challenge_name": state["challenge_name"], "retrieve_count": state["retrieve_count"]}
 
 def decide_to_generate(state):
     """
@@ -173,11 +206,11 @@ def decide_to_generate(state):
         print(
             "---DECISION: ALL DOCUMENTS ARE NOT RELEVANT TO QUESTION, TRANSFORM QUERY---"
         )
-        return "transform_query"
+        return "not_relevant"
     else:
         # We have relevant documents, so generate answer
         print("---DECISION: GENERATE---")
-        return "generate"
+        return "relevant"
 
 def grade_generation_v_documents_and_question(state):
     """
@@ -204,7 +237,7 @@ def grade_generation_v_documents_and_question(state):
         input_variables=["generation", "documents"],
     )
 
-    hallucination_grader = prompt | llm | JsonOutputParser()
+    hallucination_grader = prompt | ollama_llm | JsonOutputParser()
 
     # Answer grader
     prompt = PromptTemplate(
@@ -219,7 +252,7 @@ def grade_generation_v_documents_and_question(state):
         input_variables=["generation", "question"],
     )
 
-    answer_grader = prompt | llm | JsonOutputParser()
+    answer_grader = prompt | ollama_llm | JsonOutputParser()
 
     question = state["question"]
     documents = state["documents"]
@@ -228,24 +261,29 @@ def grade_generation_v_documents_and_question(state):
     score = hallucination_grader.invoke(
         {"documents": documents, "generation": generation}
     )
-    grade = score["score"]
+    hallucination_grade = score["score"]
 
     # Check hallucination
-    if grade == "yes":
+    if hallucination_grade == "yes":
         print("---DECISION: GENERATION IS GROUNDED IN DOCUMENTS---")
         # Check answer relevance to question
         print("---GRADE GENERATION vs QUESTION---")
         score = answer_grader.invoke({"question": question, "generation": generation})
-        grade = score["score"]
-        if grade == "yes":
+        answer_grade = score["score"]
+        if answer_grade == "yes":
             print("---DECISION: GENERATION ADDRESSES QUESTION---")
             return "useful"
         else:
             print("---DECISION: GENERATION DOES NOT ADDRESS QUESTION---")
             return "not_useful"
     else:
-        print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
-        return "not_useful"
+        generate_count = state["generate_count"]
+        if generate_count < 3:
+            print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
+            return "not_supported"
+        else:
+            print("---DECISION: MAX GENERATION ATTEMPTS EXCEEDED, SKIPPING RE-TRY---")
+            return "useful"
 
 # Question rewriter
 def transform_query(state):
@@ -268,14 +306,14 @@ def transform_query(state):
         input_variables=["generation", "question"],
     )
 
-    question_rewriter = re_write_prompt | llm | StrOutputParser()
+    question_rewriter = re_write_prompt | ollama_llm | StrOutputParser()
 
     question = state["question"]
     documents = state["documents"]
 
     # Re-write question
     better_question = question_rewriter.invoke({"question": question})
-    return {"documents": documents, "question": better_question}
+    return {"documents": documents, "question": better_question, "challenge_name": state["challenge_name"], "retrieve_count": state["retrieve_count"]}
 
 def web_search(state):
     """
@@ -296,4 +334,4 @@ def web_search(state):
     web_results = "\n".join([d["content"] for d in docs])
     web_results = Document(page_content=web_results)
 
-    return {"documents": web_results, "question": question}
+    return {"documents": web_results, "question": question, "challenge_name": state["challenge_name"], "retrieve_count": state["retrieve_count"]}
