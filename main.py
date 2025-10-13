@@ -2,7 +2,7 @@ import pprint
 from typing import List
 from typing_extensions import TypedDict
 from langgraph.graph import START, END, StateGraph
-from tools import decide_to_generate, decide_to_retrieve, generate, grade_documents, grade_generation_v_documents_and_question, route_question, transform_query, web_search, retrieve
+from utils.tools import generate, grade_generation_v_documents_and_question, route_question, web_search, retrieve
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,7 +21,6 @@ class GraphState(TypedDict):
     generation: str
     documents: List[str]
     challenge_name: str
-    retrieve_count: int
     generate_count: int
 
 workflow = StateGraph(GraphState)
@@ -29,9 +28,7 @@ workflow = StateGraph(GraphState)
 # Define nodes
 workflow.add_node("web_search", web_search)
 workflow.add_node("retrieve", retrieve)
-workflow.add_node("grade_documents", grade_documents)
 workflow.add_node("generate", generate)
-workflow.add_node("transform_query", transform_query)
 
 # Build graph
 workflow.add_conditional_edges(
@@ -43,24 +40,7 @@ workflow.add_conditional_edges(
     }
 )
 workflow.add_edge("web_search", "generate")
-workflow.add_edge("retrieve", "grade_documents")
-workflow.add_conditional_edges(
-    "grade_documents", 
-    decide_to_generate,
-    {
-        "not_relevant": "transform_query",
-        "relevant": "generate"
-    }
-)
-# workflow.add_edge("transform_query", "retrieve")
-workflow.add_conditional_edges(
-    "transform_query", 
-    decide_to_retrieve,
-    {
-        "max_retrieval_exceeded": "web_search",
-        "max_retrieval_not_exceeded": "retrieve"
-    }
-)
+workflow.add_edge("retrieve", "generate")
 workflow.add_conditional_edges(
     "generate",
     grade_generation_v_documents_and_question,
@@ -75,15 +55,20 @@ app = workflow.compile()
 
 # Example usage
 if __name__ == "__main__":
+    # question = "Give me a full step-by-step of how to solve the TwoMillion challenge in HackTheBox."  # needs web search
+    # question = "Give me a full step-by-step on how to solve the Fluffy challenge in HackTheBox." # can be answered with retrieval
+    question = "I have done the recon part, show me how to escalate to admin in the Fluffy challenge in HackTheBox."
     print = pprint.pp
-    inputs: GraphState = {"question": "Give me a full step-by-step of how to solve the TwoMillion challenge in HackTheBox.",
+    inputs: GraphState = {"question": question,
                           "challenge_name": "",
                           "generation": "",
-                          "documents": [], 
-                          "retrieve_count": 0,
+                          "documents": [],
                           "generate_count": 0}
     # Run the workflow and get the final state
     for output in app.stream(inputs):
         final_state = next(iter(output.values()))
+
     # Access the final generation result
+    # with open(f"rag_response/{final_state['challenge_name']}.md", "w", encoding="utf-8") as f:
+    #     f.write(final_state["generation"] if final_state["generation"] else "No generation produced.")
     print(final_state["generation"] if final_state["generation"] else "No generation produced.")

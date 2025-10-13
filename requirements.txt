@@ -12,7 +12,5 @@ langgraph
 tavily-python
 bs4
 scikit-learn
-nomic[local]
 crawl4ai
 requests
-youtube_transcript_api

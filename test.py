@@ -1,27 +1,51 @@
-
-from langchain_community.chat_models import ChatOllama
+from dotenv import load_dotenv
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.vectorstores import Chroma
+from langchain.schema import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import PromptTemplate
+from langchain_ollama.embeddings import OllamaEmbeddings
 
+load_dotenv()
 
-# LLM
-ollama_llm = ChatOllama(model="llama3.1:8b-instruct-q4_0", temperature=0.2, num_ctx=8192)
+google_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
+embedding = OllamaEmbeddings(model="nomic-embed-text")
+url = "https://www.youtube.com/watch?v=KvUC7bakm-E&t=815s"
+question = "Give me a full step-by-step of how to solve the Fluffy challenge in HackTheBox."
 
+# Create a Document from the video URL and question and store it in Chroma vectorstore
+with open("gemini_response/fluffy.md", "r", encoding="utf-8") as file:
+    content = file.read()
+doc = Document(page_content=str(content), metadata={"source": url})
+text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+    chunk_size=1000,
+    chunk_overlap=200,
+)
+chunks = text_splitter.split_documents([doc])
 
-challenge_name = ""
-while not challenge_name or not challenge_name.startswith("htb"):
-    print("---GUESS CHALLENGE NAME FROM QUESTION---")
-    prompt = PromptTemplate(
-        template="""You are an expert at extracting the HackTheBox challenge name from a user question. \n
-        The challenge name MUST be in the format 'htb-challengename'. \n
-        If the question does not reference a HackTheBox challenge, return 'unknown'. \n
-        Here is the user question: {question} \n
-        Return ONLY the challenge name with NO preamble or explanation.""",
-        input_variables=["question"],
-    )
-    challenge_name_extractor = prompt | ollama_llm | StrOutputParser()
-    question = "I am stuck on the media challenge in HackTheBox. Can you help me solve it?"
-    challenge_name = challenge_name_extractor.invoke({"question": question}).lower().strip()
-    if challenge_name == "unknown":
-        print("---DECISION: CHALLENGE NAME UNKNOWN, USE WEB SEARCH---")
-    print(f"---CHALLENGE NAME: {challenge_name}---")
+vectorstore = Chroma(
+    collection_name="genai",
+    persist_directory=r"D:\AI-LLM\Agents\RAGAgent\crawl4ai_store",
+    embedding_function=embedding 
+)
+
+vectorstore.add_documents(chunks)
+retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
+documents = retriever.invoke(question)
+
+# Use RAG to answer the question based on the retrieved documents
+prompt = PromptTemplate(
+    template="""You are an assistant for question-answering tasks.\n
+    Use the following pieces of retrieved context to answer the question.\n
+    If you don't know the answer, just say that you don't know.\n
+    Here is the context: {context}\n
+    Here is the question: {question}\n
+    Provide a conversational answer with a step-by-step guide on how to solve the challenge.
+    """,
+    input_variables=["context", "question"],
+)
+
+rag_chain = prompt | google_llm | StrOutputParser()
+response = rag_chain.invoke({"context": documents, "question": question})
+print(response)  # Print the final answer

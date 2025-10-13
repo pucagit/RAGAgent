@@ -97,10 +97,10 @@ async def main():
     Chroma.from_documents(
         documents=doc_splits,
         collection_name="htb_2025",                
-        persist_directory="D:/AI-LLM/Agents/RAGAgent/crawl4ai_store",  
-        embedding=OllamaEmbeddings(model="nomic-embed-text")
+        persist_directory="D:/AI-LLM/Agents/RAGAgent/crawled_data_store",  
+        embedding=OllamaEmbeddings(model="bge-m3")
     )
-    print(f"Persisted {len(doc_splits)} chunks -> collection 'htb_2025' in 'crawl4ai_store'")
+    print(f"Persisted {len(doc_splits)} chunks -> collection 'htb_2025' in 'crawled_data_store'")
 
 if __name__ == "__main__":
     asyncio.run(main())
