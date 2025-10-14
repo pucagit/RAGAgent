@@ -6,3 +6,4 @@ utils/__pycache__/
 test.*
 benchmark/dataset
 benchmark/evaluation_data
+data

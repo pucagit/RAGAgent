@@ -7,6 +7,7 @@ from langchain_ollama.embeddings import OllamaEmbeddings
 from langchain.schema import Document
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_google_genai import ChatGoogleGenerativeAI
+import logging
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ def route_question(state):
     Returns:
         str: Next node to call
     """
-    print("---ROUTE QUESTION---")
+    logging.info("---ROUTE QUESTION---")
     system_prompt = """You are an expert at routing a user question to a vectorstore or web search. \n
     Use the vectorstore for questions on HackTheBox challenges. \n
     You do not need to be stringent with the keywords in the question related to these topics. \n
@@ -63,7 +64,7 @@ def retrieve(state):
     question = state["question"]
     challenge_name = state["challenge_name"]
     while not challenge_name:
-        print("---GUESS CHALLENGE NAME FROM QUESTION---")
+        logging.info("---GUESS CHALLENGE NAME FROM QUESTION---")
         system_prompt = """You are an expert at extracting the HackTheBox challenge name from a user question.\n
         The challenge name MUST be in the format 'challengename'.\n
         If the question does not reference a HackTheBox challenge, return 'unknown'.\n
@@ -80,11 +81,11 @@ def retrieve(state):
         challenge_name_extractor = prompt | ollama_llm | StrOutputParser()
         challenge_name = challenge_name_extractor.invoke({"question": question}).lower().strip()
         if challenge_name == "unknown":
-            print("---DECISION: CHALLENGE NAME UNKNOWN, USE WEB SEARCH---")
+            logging.info("---DECISION: CHALLENGE NAME UNKNOWN, USE WEB SEARCH---")
             return {"documents": None, "question": question, "challenge_name": challenge_name}
-        print(f"---CHALLENGE NAME: {challenge_name}---")
+        logging.info(f"---CHALLENGE NAME: {challenge_name}---")
 
-    print("---RETRIEVE---")
+    logging.info("---RETRIEVE---")
     # load the vectorstore
     vectorstore = Chroma(
         collection_name="htb_2025", 
@@ -126,7 +127,7 @@ def generate(state):
     Returns:
         state (dict): New key added to state, generation, that contains LLM generation
     """
-    print("---GENERATE---")
+    logging.info("---GENERATE---")
     system_prompt = """You are an expert at question-answering tasks.\n
         Use the following pieces of retrieved context to answer the question.\n
         If you don't know the answer, just say that you don't know.\n
@@ -162,7 +163,7 @@ def grade_generation_v_documents_and_question(state):
         str: Decision for next node to call
     """
 
-    print("---CHECK HALLUCINATIONS---")
+    logging.info("---CHECK HALLUCINATIONS---")
     # Hallucination grader
     prompt = PromptTemplate(
         template="""You are a grader assessing whether an answer is grounded in / supported by a set of facts. \n 
@@ -235,7 +236,7 @@ def web_search(state):
         state (dict): Updates documents key with appended web results
     """
 
-    print("---WEB SEARCH---")
+    logging.info("---WEB SEARCH---")
     question = state["question"]
 
     # Web search

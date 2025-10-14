@@ -56,8 +56,8 @@ app = workflow.compile()
 # Example usage
 if __name__ == "__main__":
     # question = "Give me a full step-by-step of how to solve the TwoMillion challenge in HackTheBox."  # needs web search
-    # question = "Give me a full step-by-step on how to solve the Fluffy challenge in HackTheBox." # can be answered with retrieval
-    question = "I have done the recon part, show me how to escalate to admin in the Fluffy challenge in HackTheBox."
+    question = "Give me a full step-by-step on how to solve the Tombwatcher challenge in HackTheBox." # can be answered with retrieval
+    # question = "I have done the recon part, show me how to escalate to admin in the Fluffy challenge in HackTheBox."
     print = pprint.pp
     inputs: GraphState = {"question": question,
                           "challenge_name": "",
@@ -69,6 +69,6 @@ if __name__ == "__main__":
         final_state = next(iter(output.values()))
 
     # Access the final generation result
-    # with open(f"rag_response/{final_state['challenge_name']}.md", "w", encoding="utf-8") as f:
-    #     f.write(final_state["generation"] if final_state["generation"] else "No generation produced.")
-    print(final_state["generation"] if final_state["generation"] else "No generation produced.")
+    with open(f"rag_response/{final_state['challenge_name']}.md", "w", encoding="utf-8") as f:
+        f.write(final_state["generation"] if final_state["generation"] else "No generation produced.")
+    # print(final_state["generation"] if final_state["generation"] else "No generation produced.")

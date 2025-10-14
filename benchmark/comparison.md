@@ -12,19 +12,43 @@ Thực nghiệm nhằm **đánh giá hiệu năng truy hồi (retrieval performa
 
 ## **2. Thiết lập**
 
-* **Dataset:** *Paul Graham’s Essays* (~6.000 đoạn, mỗi đoạn ~512 ký tự).
+* **Dataset:** [*Cybersecurity Attack Dataset*](https://huggingface.co/datasets/pucavv/Cybersecurity_Attack) (~18.29MB, ~14000 rows).
 * **Công cụ:** PostgreSQL + `pgai Vectorizer`, chạy embedding qua Ollama.
 * **Các mô hình thử nghiệm:** 8 mô hình embedding mã nguồn mở.
+  
+| Mô hình embedding               |    Parameters    | Dimensions |       Size | 
+| ------------------------------- | ---------------- | ---------- | ---------- |
+| **mxbai-embed-large**           |            	334M |       1024 |      670MB |
+| **nomic-embed-text**            |            	137M |        768 |      274MB | 
+| **bge-m3**                      |             567M |       1024 |      1.2GB |
+| **qwen3-embedding:0.6b**        |             0.6B |       1024 |      639MB |
+| **qwen3-embedding:4b**          |               4B |       2560 |      2.5GB |
+| **embeddinggemma:300m**         |             300M |        768 |      622MB |
+| **snowflake-arctic-embed:335m** |             335M |       1024 |      669MB |
+| **granite-embedding:278m**      |             278M |        768 |      563MB |
+
 * **Phân loại câu hỏi:**
 
-  1. *Short* – câu ngắn, rõ ràng
-  2. *Long* – câu dài, có ngữ cảnh
-  3. *Direct* – truy vấn trực tiếp nội dung
-  4. *Implied* – cần suy luận ngữ nghĩa
-  5. *Unclear* – mơ hồ, không rõ ngữ cảnh
+| **Loại câu hỏi**          | **Mô tả**                                              | **Trọng tâm đánh giá**                                                                                            |
+| ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| **Câu hỏi ngắn**          | Câu hỏi đơn giản, trực tiếp, có độ dài dưới 10 từ      | Hiểu ngữ nghĩa (kiểm tra khả năng hiểu cơ bản)                                                                    |
+| **Câu hỏi dài**           | Câu hỏi chi tiết, toàn diện, chứa các thông tin cụ thể | Truy hồi theo ngữ cảnh (kiểm tra khả năng xử lý câu hỏi sâu và nhiều chi tiết)                                    |
+| **Câu hỏi trực tiếp**     | Đề cập đến nội dung được nêu rõ trong văn bản          | Hiểu ngữ nghĩa (kiểm tra khả năng truy hồi thông tin khớp chính xác)                                              |
+| **Câu hỏi hàm ý**         | Câu hỏi dựa trên ngữ cảnh, đòi hỏi khả năng suy luận   | Truy hồi theo ngữ cảnh (kiểm tra khả năng hiểu ý nghĩa vượt ra ngoài nội dung hiển thị)                           |
+| **Câu hỏi không rõ ràng** | Câu hỏi mơ hồ hoặc đa nghĩa                            | Kiểm tra cả hai tiêu chí đánh giá (khả năng của mô hình trong việc xử lý sự không chắc chắn và diễn giải ý nghĩa) |
 
-Phương pháp: với mỗi câu hỏi, truy hồi **top-10 đoạn gần nhất**, xem đoạn gốc có xuất hiện không để tính điểm chính xác.
 
+* **Phương pháp:** 
+  1. Chuẩn bị:
+     - Dataset về Cybersecurity (~14000 rows)
+     - Chọn ra 20 chunks ngẫu nhiên và tạo các câu hỏi dựa trên chúng
+  2. Với mỗi model:
+     - Vector hóa cấu hỏi, dataset với cùng chiến thuật (512 characters với 50 character overlap)
+     - Thực hiện similarity search giữa các đoạn chunk của dataset và câu hỏi
+     - Kiểm tra trong `top-K` kết quả có chứa đoạn chunk gốc không
+  3. Tính toán hiệu năng:
+     - Độ chính xác tổng thể
+     - Độ chính xác dựa trên từng loại câu hỏi
 ---
 
 ## **3. Kết quả tổng hợp**
@@ -97,6 +121,5 @@ Biểu đồ cho thấy BGE-M3 nổi bật nhất ở tất cả nhóm câu hỏ
 4. **Gemma và Arctic** chỉ nên dùng cho thử nghiệm hoặc mô phỏng pipeline RAG.
 5. Với các ứng dụng RAG an ninh mạng, lựa chọn tốt nhất là **BGE-M3** hoặc **Nomic-embed-text**, đảm bảo cân bằng giữa hiệu năng, tốc độ và tính riêng tư dữ liệu.
 
----
-
-Bạn muốn mình giúp định dạng chương này sang **mẫu luận văn chuẩn Word hoặc LaTeX** (với bảng, hình và chú thích tự động) để bạn chèn vào báo cáo không?
+## **6. Tham khảo**
+https://www.tigerdata.com/blog/finding-the-best-open-source-embedding-model-for-rag

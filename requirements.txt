@@ -14,3 +14,6 @@ bs4
 scikit-learn
 crawl4ai
 requests
+mcp[cli]
+unstructured
+unstructured[md]
